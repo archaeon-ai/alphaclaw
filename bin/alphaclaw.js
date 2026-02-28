@@ -12,11 +12,52 @@ const { buildSecretReplacements } = require("../lib/server/helpers");
 // ---------------------------------------------------------------------------
 
 const args = process.argv.slice(2);
-const command = args.find((a) => !a.startsWith("-"));
 
-const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+const flagValue = (argv, ...flags) => {
+  for (const flag of flags) {
+    const idx = argv.indexOf(flag);
+    if (idx !== -1 && idx + 1 < argv.length) {
+      return argv[idx + 1];
+    }
+  }
+  return undefined;
+};
 
-if (args.includes("--version") || args.includes("-v") || command === "version") {
+const kGlobalValueFlags = new Set(["--root-dir", "--port"]);
+const splitGlobalAndCommandArgs = (argv) => {
+  const globalArgs = [];
+  let index = 0;
+  while (index < argv.length) {
+    const token = argv[index];
+    if (!token.startsWith("-")) break;
+    globalArgs.push(token);
+    if (kGlobalValueFlags.has(token) && index + 1 < argv.length) {
+      globalArgs.push(argv[index + 1]);
+      index += 2;
+      continue;
+    }
+    index += 1;
+  }
+  return {
+    globalArgs,
+    commandArgs: argv.slice(index),
+  };
+};
+
+const { globalArgs, commandArgs } = splitGlobalAndCommandArgs(args);
+const command = commandArgs[0];
+const commandScope = commandArgs[1];
+const commandAction = commandArgs[2];
+
+const pkg = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"),
+);
+
+if (
+  args.includes("--version") ||
+  args.includes("-v") ||
+  command === "version"
+) {
   console.log(pkg.version);
   process.exit(0);
 }
@@ -30,27 +71,34 @@ Usage: alphaclaw <command> [options]
 Commands:
   start     Start the AlphaClaw server (Setup UI + gateway manager)
   git-sync  Commit and push /data/.openclaw safely using GITHUB_TOKEN
+  telegram topic add  Add/update Telegram topic mapping by thread ID
   version   Print version
 
-Options:
-  --root-dir <path>   Persistent data directory (default: ~/.alphaclaw)
-  --port <number>     Server port (default: 3000)
-  --message, -m <text> Commit message (for git-sync)
-  --version, -v       Print version
-  --help              Show this help message
+Global options:
+--version, -v       Print version
+--help              Show this help message
+
+start options:
+--root-dir <path>   Persistent data directory (default: ~/.alphaclaw)
+--port <number>     Server port (default: 3000)
+
+git-sync options:
+  --message, -m <text> Commit message
+
+telegram topic add options:
+  --thread <id>       Telegram thread ID
+  --name <text>       Topic name
+  --system <text>     Optional system instructions
+  --group <id>        Optional group ID override (auto-resolves when one group exists)
+
+Examples:
+  alphaclaw git-sync --message "sync workspace"
+  alphaclaw telegram topic add --thread 12 --name "Testing"
+  alphaclaw telegram topic add --thread 12 --name "Testing" --system "Handle QA requests"
 `);
   process.exit(0);
 }
 
-const flagValue = (...flags) => {
-  for (const flag of flags) {
-    const idx = args.indexOf(flag);
-    if (idx !== -1 && idx + 1 < args.length) {
-      return args[idx + 1];
-    }
-  }
-  return undefined;
-};
 const quoteArg = (value) => `'${String(value || "").replace(/'/g, "'\"'\"'")}'`;
 const resolveGithubRepoPath = (value) =>
   String(value || "")
@@ -63,13 +111,14 @@ const resolveGithubRepoPath = (value) =>
 // 1. Resolve root directory (before requiring any lib/ modules)
 // ---------------------------------------------------------------------------
 
-const rootDir = flagValue("--root-dir")
-  || process.env.ALPHACLAW_ROOT_DIR
-  || path.join(os.homedir(), ".alphaclaw");
+const rootDir =
+  flagValue(globalArgs, "--root-dir") ||
+  process.env.ALPHACLAW_ROOT_DIR ||
+  path.join(os.homedir(), ".alphaclaw");
 
 process.env.ALPHACLAW_ROOT_DIR = rootDir;
 
-const portFlag = flagValue("--port");
+const portFlag = flagValue(globalArgs, "--port");
 if (portFlag) {
   process.env.PORT = portFlag;
 }
@@ -88,16 +137,24 @@ console.log(`[alphaclaw] Root directory: ${rootDir}`);
 // from the fresh container using the persistent volume marker.
 const pendingUpdateMarker = path.join(rootDir, ".alphaclaw-update-pending");
 if (fs.existsSync(pendingUpdateMarker)) {
-  console.log("[alphaclaw] Pending update detected, installing @chrysb/alphaclaw@latest...");
+  console.log(
+    "[alphaclaw] Pending update detected, installing @chrysb/alphaclaw@latest...",
+  );
   const alphaPkgRoot = path.resolve(__dirname, "..");
-  const nmIndex = alphaPkgRoot.lastIndexOf(`${path.sep}node_modules${path.sep}`);
-  const installDir = nmIndex >= 0 ? alphaPkgRoot.slice(0, nmIndex) : alphaPkgRoot;
+  const nmIndex = alphaPkgRoot.lastIndexOf(
+    `${path.sep}node_modules${path.sep}`,
+  );
+  const installDir =
+    nmIndex >= 0 ? alphaPkgRoot.slice(0, nmIndex) : alphaPkgRoot;
   try {
-    execSync("npm install @chrysb/alphaclaw@latest --omit=dev --prefer-online", {
-      cwd: installDir,
-      stdio: "inherit",
-      timeout: 180000,
-    });
+    execSync(
+      "npm install @chrysb/alphaclaw@latest --omit=dev --prefer-online",
+      {
+        cwd: installDir,
+        stdio: "inherit",
+        timeout: 180000,
+      },
+    );
     fs.unlinkSync(pendingUpdateMarker);
     console.log("[alphaclaw] Update applied successfully");
   } catch (e) {
@@ -171,8 +228,12 @@ if (fs.existsSync(envFilePath)) {
 
 const runGitSync = () => {
   const githubToken = String(process.env.GITHUB_TOKEN || "").trim();
-  const githubRepo = resolveGithubRepoPath(process.env.GITHUB_WORKSPACE_REPO || "");
-  const commitMessage = String(flagValue("--message", "-m") || "").trim();
+  const githubRepo = resolveGithubRepoPath(
+    process.env.GITHUB_WORKSPACE_REPO || "",
+  );
+  const commitMessage = String(
+    flagValue(commandArgs, "--message", "-m") || "",
+  ).trim();
   if (!commitMessage) {
     console.error("[alphaclaw] Missing --message for git-sync");
     return 1;
@@ -193,9 +254,15 @@ const runGitSync = () => {
   const originUrl = `https://github.com/${githubRepo}.git`;
   const branch =
     String(
-      execSync("git rev-parse --abbrev-ref HEAD", { cwd: openclawDir, encoding: "utf8" }),
+      execSync("git rev-parse --abbrev-ref HEAD", {
+        cwd: openclawDir,
+        encoding: "utf8",
+      }),
     ).trim() || "main";
-  const askPassPath = path.join(os.tmpdir(), `alphaclaw-git-askpass-${process.pid}.sh`);
+  const askPassPath = path.join(
+    os.tmpdir(),
+    `alphaclaw-git-askpass-${process.pid}.sh`,
+  );
   const runGit = (gitCommand, { withAuth = false } = {}) => {
     const cmd = withAuth
       ? `GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=${quoteArg(askPassPath)} git ${gitCommand}`
@@ -228,10 +295,16 @@ const runGitSync = () => {
 
     runGit(`remote set-url origin ${quoteArg(originUrl)}`);
     try {
-      runGit(`ls-remote --exit-code --heads origin ${quoteArg(branch)}`, { withAuth: true });
-      runGit(`pull --rebase --autostash origin ${quoteArg(branch)}`, { withAuth: true });
+      runGit(`ls-remote --exit-code --heads origin ${quoteArg(branch)}`, {
+        withAuth: true,
+      });
+      runGit(`pull --rebase --autostash origin ${quoteArg(branch)}`, {
+        withAuth: true,
+      });
     } catch {
-      console.log(`[alphaclaw] Remote branch "${branch}" not found, skipping pull`);
+      console.log(
+        `[alphaclaw] Remote branch "${branch}" not found, skipping pull`,
+      );
     }
     runGit("add -A");
     try {
@@ -257,6 +330,98 @@ const runGitSync = () => {
 
 if (command === "git-sync") {
   process.exit(runGitSync());
+}
+
+const runTelegramTopicAdd = () => {
+  const topicName = String(flagValue(commandArgs, "--name") || "").trim();
+  const threadId = String(flagValue(commandArgs, "--thread") || "").trim();
+  const systemInstructions = String(
+    flagValue(commandArgs, "--system") || "",
+  ).trim();
+  const requestedGroupId = String(
+    flagValue(commandArgs, "--group") || "",
+  ).trim();
+  if (!threadId) {
+    console.error("[alphaclaw] Missing --thread for telegram topic add");
+    return 1;
+  }
+  if (!topicName) {
+    console.error("[alphaclaw] Missing --name for telegram topic add");
+    return 1;
+  }
+
+  const configPath = path.join(openclawDir, "openclaw.json");
+  if (!fs.existsSync(configPath)) {
+    console.error("[alphaclaw] Missing openclaw.json. Run setup first.");
+    return 1;
+  }
+
+  try {
+    const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    const configuredGroups = Object.keys(cfg.channels?.telegram?.groups || {});
+    let groupId = requestedGroupId;
+    if (!groupId) {
+      if (configuredGroups.length === 1) {
+        [groupId] = configuredGroups;
+      } else if (configuredGroups.length === 0) {
+        console.error(
+          "[alphaclaw] No Telegram group configured. Configure Telegram workspace first.",
+        );
+        return 1;
+      } else {
+        console.error(
+          "[alphaclaw] Multiple Telegram groups detected. Provide --group <groupId>.",
+        );
+        return 1;
+      }
+    }
+
+    const topicRegistry = require("../lib/server/topic-registry");
+    const {
+      syncConfigForTelegram,
+    } = require("../lib/server/telegram-workspace");
+    const {
+      syncBootstrapPromptFiles,
+    } = require("../lib/server/onboarding/workspace");
+    topicRegistry.updateTopic(groupId, threadId, {
+      name: topicName,
+      ...(systemInstructions ? { systemInstructions } : {}),
+    });
+
+    const requireMention =
+      !!cfg.channels?.telegram?.groups?.[groupId]?.requireMention;
+    const syncResult = syncConfigForTelegram({
+      fs,
+      openclawDir,
+      topicRegistry,
+      groupId,
+      requireMention,
+      resolvedUserId: "",
+    });
+    syncBootstrapPromptFiles({
+      fs,
+      workspaceDir: path.join(openclawDir, "workspace"),
+    });
+
+    console.log(
+      `[alphaclaw] Topic mapped: group=${groupId} thread=${threadId} name=${topicName}`,
+    );
+    console.log(
+      `[alphaclaw] Concurrency updated: agent=${syncResult.maxConcurrent} subagents=${syncResult.subagentMaxConcurrent} topics=${syncResult.totalTopics}`,
+    );
+    return 0;
+  } catch (e) {
+    console.error(`[alphaclaw] telegram topic add failed: ${e.message}`);
+    return 1;
+  }
+};
+
+if (
+  command === "telegram" &&
+  commandScope === "topic" &&
+  commandAction === "add"
+) {
+  process.exit(runTelegramTopicAdd());
 }
 
 const kSetupPassword = String(process.env.SETUP_PASSWORD || "").trim();
@@ -303,7 +468,10 @@ if (!gogInstalled) {
     const arch = os.arch() === "arm64" ? "arm64" : "amd64";
     const tarball = `gogcli_${gogVersion}_${platform}_${arch}.tar.gz`;
     const url = `https://github.com/steipete/gogcli/releases/download/v${gogVersion}/${tarball}`;
-    execSync(`curl -fsSL "${url}" -o /tmp/gog.tar.gz && tar -xzf /tmp/gog.tar.gz -C /tmp/ && mv /tmp/gog /usr/local/bin/gog && chmod +x /usr/local/bin/gog && rm -f /tmp/gog.tar.gz`, { stdio: "inherit" });
+    execSync(
+      `curl -fsSL "${url}" -o /tmp/gog.tar.gz && tar -xzf /tmp/gog.tar.gz -C /tmp/ && mv /tmp/gog /usr/local/bin/gog && chmod +x /usr/local/bin/gog && rm -f /tmp/gog.tar.gz`,
+      { stdio: "inherit" },
+    );
     console.log("[alphaclaw] gog CLI installed");
   } catch (e) {
     console.log(`[alphaclaw] gog install skipped: ${e.message}`);
@@ -314,7 +482,8 @@ if (!gogInstalled) {
 // 7. Configure gog keyring (file backend for headless environments)
 // ---------------------------------------------------------------------------
 
-process.env.GOG_KEYRING_PASSWORD = process.env.GOG_KEYRING_PASSWORD || "alphaclaw";
+process.env.GOG_KEYRING_PASSWORD =
+  process.env.GOG_KEYRING_PASSWORD || "alphaclaw";
 const gogConfigFile = path.join(openclawDir, "gogcli", "config.json");
 
 if (!fs.existsSync(gogConfigFile)) {
@@ -334,21 +503,26 @@ const packagedHourlyGitSyncPath = path.join(setupDir, "hourly-git-sync.sh");
 
 try {
   if (fs.existsSync(packagedHourlyGitSyncPath)) {
-    const packagedSyncScript = fs.readFileSync(packagedHourlyGitSyncPath, "utf8");
+    const packagedSyncScript = fs.readFileSync(
+      packagedHourlyGitSyncPath,
+      "utf8",
+    );
     const installedSyncScript = fs.existsSync(hourlyGitSyncPath)
       ? fs.readFileSync(hourlyGitSyncPath, "utf8")
       : "";
     const shouldInstallSyncScript =
-      !installedSyncScript
-      || !installedSyncScript.includes("GIT_ASKPASS")
-      || !installedSyncScript.includes("GITHUB_TOKEN");
+      !installedSyncScript ||
+      !installedSyncScript.includes("GIT_ASKPASS") ||
+      !installedSyncScript.includes("GITHUB_TOKEN");
     if (shouldInstallSyncScript && packagedSyncScript.trim()) {
       fs.writeFileSync(hourlyGitSyncPath, packagedSyncScript, { mode: 0o755 });
       console.log("[alphaclaw] Refreshed hourly git sync script");
     }
   }
 } catch (e) {
-  console.log(`[alphaclaw] Hourly git sync script refresh skipped: ${e.message}`);
+  console.log(
+    `[alphaclaw] Hourly git sync script refresh skipped: ${e.message}`,
+  );
 }
 
 if (fs.existsSync(hourlyGitSyncPath)) {
@@ -377,7 +551,9 @@ if (fs.existsSync(hourlyGitSyncPath)) {
       fs.writeFileSync(cronFilePath, cronContent, { mode: 0o644 });
       console.log("[alphaclaw] System cron entry installed");
     } else {
-      try { fs.unlinkSync(cronFilePath); } catch {}
+      try {
+        fs.unlinkSync(cronFilePath);
+      } catch {}
       console.log("[alphaclaw] System cron entry disabled");
     }
   } catch (e) {
@@ -410,13 +586,18 @@ if (process.env.GOG_CLIENT_CREDENTIALS_JSON && process.env.GOG_REFRESH_TOKEN) {
     fs.writeFileSync(tmpCreds, process.env.GOG_CLIENT_CREDENTIALS_JSON);
     execSync(`gog auth credentials set "${tmpCreds}"`, { stdio: "ignore" });
     fs.unlinkSync(tmpCreds);
-    fs.writeFileSync(tmpToken, JSON.stringify({
-      email: process.env.GOG_ACCOUNT || "",
-      refresh_token: process.env.GOG_REFRESH_TOKEN,
-    }));
+    fs.writeFileSync(
+      tmpToken,
+      JSON.stringify({
+        email: process.env.GOG_ACCOUNT || "",
+        refresh_token: process.env.GOG_REFRESH_TOKEN,
+      }),
+    );
     execSync(`gog auth tokens import "${tmpToken}"`, { stdio: "ignore" });
     fs.unlinkSync(tmpToken);
-    console.log(`[alphaclaw] gog CLI configured for ${process.env.GOG_ACCOUNT || "account"}`);
+    console.log(
+      `[alphaclaw] gog CLI configured for ${process.env.GOG_ACCOUNT || "account"}`,
+    );
   } catch (e) {
     console.log(`[alphaclaw] gog credentials setup skipped: ${e.message}`);
   }
@@ -457,7 +638,9 @@ if (fs.existsSync(configPath)) {
         stdio: ["ignore", "pipe", "ignore"],
         encoding: "utf8",
       }).trim();
-      const match = existingOrigin.match(/^https:\/\/[^/@]+@github\.com\/(.+)$/i);
+      const match = existingOrigin.match(
+        /^https:\/\/[^/@]+@github\.com\/(.+)$/i,
+      );
       if (match?.[1]) {
         const cleanedPath = String(match[1]).replace(/\.git$/i, "");
         const cleanedOrigin = `https://github.com/${cleanedPath}.git`;
@@ -516,7 +699,9 @@ if (fs.existsSync(configPath)) {
     console.error(`[alphaclaw] Channel reconciliation error: ${e.message}`);
   }
 } else {
-  console.log("[alphaclaw] No config yet -- onboarding will run from the Setup UI");
+  console.log(
+    "[alphaclaw] No config yet -- onboarding will run from the Setup UI",
+  );
 }
 
 // ---------------------------------------------------------------------------
