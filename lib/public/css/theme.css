@@ -86,6 +86,15 @@ textarea:focus {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
 
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 /* Google scope picker toggle buttons */
 .scope-btn { background: rgba(255,255,255,0.03); color: var(--text-muted); border: 1px solid var(--border); transition: all 0.15s; }
 .scope-btn:hover { border-color: var(--text-dim); color: var(--text); }
