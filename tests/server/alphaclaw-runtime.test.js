@@ -6,12 +6,45 @@ const {
   ensureManagedAlphaclawRuntimeProject,
   getManagedAlphaclawCliPath,
   getManagedAlphaclawPackageJsonPath,
+  getManagedAlphaclawPackageRoot,
   getManagedAlphaclawRuntimeDir,
   installManagedAlphaclawRuntime,
   readBundledAlphaclawVersion,
   readManagedAlphaclawRuntimeVersion,
   syncManagedAlphaclawRuntimeWithBundled,
 } = require("../../lib/server/alphaclaw-runtime");
+
+const writeAlphaclawPackage = ({
+  packageRoot,
+  version,
+  usageTrackerBody = "module.exports = 'alphaclaw';\n",
+} = {}) => {
+  fs.mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
+  fs.mkdirSync(path.join(packageRoot, "lib", "server"), { recursive: true });
+  fs.writeFileSync(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify(
+      {
+        name: "@chrysb/alphaclaw",
+        version,
+        bin: {
+          alphaclaw: "bin/alphaclaw.js",
+        },
+        files: ["bin/", "lib/"],
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(
+    path.join(packageRoot, "bin", "alphaclaw.js"),
+    "#!/usr/bin/env node\nconsole.log('alphaclaw');\n",
+  );
+  fs.writeFileSync(
+    path.join(packageRoot, "lib", "server", "usage-tracker-config.js"),
+    usageTrackerBody,
+  );
+};
 
 describe("server/alphaclaw-runtime", () => {
   let tmpDir;
@@ -116,18 +149,17 @@ describe("server/alphaclaw-runtime", () => {
 
   it("seeds the managed runtime from the bundled AlphaClaw version when missing", () => {
     const runtimeDir = getManagedAlphaclawRuntimeDir({ rootDir: tmpDir });
-    const packageJsonPath = path.join(tmpDir, "package.json");
-    fs.writeFileSync(
-      packageJsonPath,
-      JSON.stringify({ name: "@chrysb/alphaclaw", version: "0.8.9" }),
-    );
+    const bundleDir = path.join(tmpDir, "bundle");
+    const packageJsonPath = path.join(bundleDir, "package.json");
+    writeAlphaclawPackage({
+      packageRoot: bundleDir,
+      version: "0.8.9",
+    });
     const execSyncImpl = vi.fn((command, options) => {
-      const pkgPath = getManagedAlphaclawPackageJsonPath({ runtimeDir: options.cwd });
-      fs.mkdirSync(path.dirname(pkgPath), { recursive: true });
-      fs.writeFileSync(
-        pkgPath,
-        JSON.stringify({ name: "@chrysb/alphaclaw", version: "0.8.9" }),
-      );
+      writeAlphaclawPackage({
+        packageRoot: getManagedAlphaclawPackageRoot({ runtimeDir: options.cwd }),
+        version: "0.8.9",
+      });
     });
 
     const result = syncManagedAlphaclawRuntimeWithBundled({
@@ -135,6 +167,7 @@ describe("server/alphaclaw-runtime", () => {
       fsModule: fs,
       logger: { log: vi.fn() },
       runtimeDir,
+      packageRoot: bundleDir,
       packageJsonPath,
     });
 
@@ -145,7 +178,54 @@ describe("server/alphaclaw-runtime", () => {
       runtimeVersion: "0.8.9",
     });
     expect(execSyncImpl).toHaveBeenCalledWith(
-      "npm install '@chrysb/alphaclaw@0.8.9' --omit=dev --no-save --save=false --package-lock=false --prefer-online",
+      `npm install '${bundleDir}' --omit=dev --no-save --save=false --package-lock=false --prefer-online`,
+      {
+        cwd: runtimeDir,
+        stdio: "inherit",
+        timeout: 180000,
+      },
+    );
+  });
+
+  it("refreshes the managed runtime when bundled contents change without a version bump", () => {
+    const runtimeDir = getManagedAlphaclawRuntimeDir({ rootDir: tmpDir });
+    const bundleDir = path.join(tmpDir, "bundle");
+    const packageJsonPath = path.join(bundleDir, "package.json");
+    writeAlphaclawPackage({
+      packageRoot: bundleDir,
+      version: "0.8.9",
+      usageTrackerBody: "module.exports = 'new';\n",
+    });
+    writeAlphaclawPackage({
+      packageRoot: getManagedAlphaclawPackageRoot({ runtimeDir }),
+      version: "0.8.9",
+      usageTrackerBody: "module.exports = 'old';\n",
+    });
+    const execSyncImpl = vi.fn((command, options) => {
+      writeAlphaclawPackage({
+        packageRoot: getManagedAlphaclawPackageRoot({ runtimeDir: options.cwd }),
+        version: "0.8.9",
+        usageTrackerBody: "module.exports = 'new';\n",
+      });
+    });
+
+    const result = syncManagedAlphaclawRuntimeWithBundled({
+      execSyncImpl,
+      fsModule: fs,
+      logger: { log: vi.fn() },
+      runtimeDir,
+      packageRoot: bundleDir,
+      packageJsonPath,
+    });
+
+    expect(result).toEqual({
+      checked: true,
+      synced: true,
+      bundledVersion: "0.8.9",
+      runtimeVersion: "0.8.9",
+    });
+    expect(execSyncImpl).toHaveBeenCalledWith(
+      `npm install '${bundleDir}' --omit=dev --no-save --save=false --package-lock=false --prefer-online`,
       {
         cwd: runtimeDir,
         stdio: "inherit",
@@ -156,17 +236,17 @@ describe("server/alphaclaw-runtime", () => {
 
   it("does not downgrade a newer managed runtime during bundled sync", () => {
     const runtimeDir = getManagedAlphaclawRuntimeDir({ rootDir: tmpDir });
-    const packageJsonPath = path.join(tmpDir, "package.json");
+    const bundleDir = path.join(tmpDir, "bundle");
+    const packageJsonPath = path.join(bundleDir, "package.json");
     const runtimePkgPath = getManagedAlphaclawPackageJsonPath({ runtimeDir });
-    fs.writeFileSync(
-      packageJsonPath,
-      JSON.stringify({ name: "@chrysb/alphaclaw", version: "0.8.8" }),
-    );
-    fs.mkdirSync(path.dirname(runtimePkgPath), { recursive: true });
-    fs.writeFileSync(
-      runtimePkgPath,
-      JSON.stringify({ name: "@chrysb/alphaclaw", version: "0.8.9" }),
-    );
+    writeAlphaclawPackage({
+      packageRoot: bundleDir,
+      version: "0.8.8",
+    });
+    writeAlphaclawPackage({
+      packageRoot: getManagedAlphaclawPackageRoot({ runtimeDir }),
+      version: "0.8.9",
+    });
     const execSyncImpl = vi.fn();
 
     const result = syncManagedAlphaclawRuntimeWithBundled({
@@ -174,6 +254,7 @@ describe("server/alphaclaw-runtime", () => {
       fsModule: fs,
       logger: { log: vi.fn() },
       runtimeDir,
+      packageRoot: bundleDir,
       packageJsonPath,
     });
 

@@ -5,9 +5,11 @@ const path = require("path");
 const {
   applyManagedOpenclawPatch,
   ensureManagedOpenclawRuntimeProject,
+  getBundledOpenclawPackageRoot,
   getManagedOpenclawBinDir,
   getManagedOpenclawBinPath,
   getManagedOpenclawPackageJsonPath,
+  getManagedOpenclawPackageRoot,
   getManagedOpenclawRuntimeDir,
   installManagedOpenclawRuntime,
   prependManagedOpenclawBinToPath,
@@ -15,6 +17,27 @@ const {
   readManagedOpenclawRuntimeVersion,
   syncManagedOpenclawRuntimeWithBundled,
 } = require("../../lib/server/openclaw-runtime");
+
+const writeOpenclawPackage = ({
+  packageRoot,
+  version,
+  markerBody = "module.exports = 'openclaw';\n",
+} = {}) => {
+  fs.mkdirSync(path.join(packageRoot, "lib"), { recursive: true });
+  fs.writeFileSync(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify(
+      {
+        name: "openclaw",
+        version,
+        files: ["lib/"],
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(packageRoot, "lib", "runtime.js"), markerBody);
+};
 
 describe("server/openclaw-runtime", () => {
   let tmpDir;
@@ -71,12 +94,11 @@ describe("server/openclaw-runtime", () => {
 
   it("reads the bundled OpenClaw version from the installed package metadata", () => {
     const bundleDir = path.join(tmpDir, "bundle");
-    const bundledPkgPath = path.join(bundleDir, "node_modules", "openclaw", "package.json");
-    fs.mkdirSync(path.dirname(bundledPkgPath), { recursive: true });
-    fs.writeFileSync(
-      bundledPkgPath,
-      JSON.stringify({ name: "openclaw", version: "2026.4.6" }),
-    );
+    const bundledPkgPath = path.join(bundleDir, "package.json");
+    writeOpenclawPackage({
+      packageRoot: bundleDir,
+      version: "2026.4.6",
+    });
 
     expect(
       readBundledOpenclawVersion({
@@ -188,20 +210,17 @@ describe("server/openclaw-runtime", () => {
   it("seeds the managed runtime from the bundled OpenClaw version when missing", () => {
     const runtimeDir = getManagedOpenclawRuntimeDir({ rootDir: tmpDir });
     const bundleDir = path.join(tmpDir, "bundle");
-    const bundledPkgPath = path.join(bundleDir, "node_modules", "openclaw", "package.json");
-    fs.mkdirSync(path.dirname(bundledPkgPath), { recursive: true });
-    fs.writeFileSync(
-      bundledPkgPath,
-      JSON.stringify({ name: "openclaw", version: "2026.4.5" }),
-    );
+    const bundledPkgPath = path.join(bundleDir, "package.json");
+    writeOpenclawPackage({
+      packageRoot: bundleDir,
+      version: "2026.4.5",
+    });
     const execSyncImpl = vi.fn((command, options) => {
       if (!String(command).includes("npm install")) return;
-      const pkgPath = getManagedOpenclawPackageJsonPath({ runtimeDir: options.cwd });
-      fs.mkdirSync(path.dirname(pkgPath), { recursive: true });
-      fs.writeFileSync(
-        pkgPath,
-        JSON.stringify({ name: "openclaw", version: "2026.4.5" }),
-      );
+      writeOpenclawPackage({
+        packageRoot: getManagedOpenclawPackageRoot({ runtimeDir: options.cwd }),
+        version: "2026.4.5",
+      });
     });
 
     const result = syncManagedOpenclawRuntimeWithBundled({
@@ -223,7 +242,58 @@ describe("server/openclaw-runtime", () => {
       runtimeVersion: "2026.4.5",
     });
     expect(execSyncImpl).toHaveBeenCalledWith(
-      "npm install 'openclaw@2026.4.5' --omit=dev --no-save --save=false --package-lock=false --prefer-online",
+      `npm install '${bundleDir}' --omit=dev --no-save --save=false --package-lock=false --prefer-online`,
+      {
+        cwd: runtimeDir,
+        stdio: "inherit",
+        timeout: 180000,
+      },
+    );
+  });
+
+  it("refreshes the managed runtime when bundled contents change without a version bump", () => {
+    const runtimeDir = getManagedOpenclawRuntimeDir({ rootDir: tmpDir });
+    const bundleDir = path.join(tmpDir, "bundle");
+    const bundledPkgPath = path.join(bundleDir, "package.json");
+    writeOpenclawPackage({
+      packageRoot: bundleDir,
+      version: "2026.4.5",
+      markerBody: "module.exports = 'new';\n",
+    });
+    writeOpenclawPackage({
+      packageRoot: getManagedOpenclawPackageRoot({ runtimeDir }),
+      version: "2026.4.5",
+      markerBody: "module.exports = 'old';\n",
+    });
+    const execSyncImpl = vi.fn((command, options) => {
+      if (!String(command).includes("npm install")) return;
+      writeOpenclawPackage({
+        packageRoot: getManagedOpenclawPackageRoot({ runtimeDir: options.cwd }),
+        version: "2026.4.5",
+        markerBody: "module.exports = 'new';\n",
+      });
+    });
+
+    const result = syncManagedOpenclawRuntimeWithBundled({
+      execSyncImpl,
+      fsModule: fs,
+      logger: { log: vi.fn() },
+      runtimeDir,
+      resolveImpl: (request) => {
+        if (request === "openclaw/package.json") return bundledPkgPath;
+        throw new Error(`unexpected resolve ${request}`);
+      },
+      alphaclawRoot: path.join(tmpDir, "alphaclaw-no-patches"),
+    });
+
+    expect(result).toEqual({
+      checked: true,
+      synced: true,
+      bundledVersion: "2026.4.5",
+      runtimeVersion: "2026.4.5",
+    });
+    expect(execSyncImpl).toHaveBeenCalledWith(
+      `npm install '${bundleDir}' --omit=dev --no-save --save=false --package-lock=false --prefer-online`,
       {
         cwd: runtimeDir,
         stdio: "inherit",
@@ -234,18 +304,16 @@ describe("server/openclaw-runtime", () => {
 
   it("does not downgrade a newer managed runtime during bundled sync", () => {
     const runtimeDir = getManagedOpenclawRuntimeDir({ rootDir: tmpDir });
-    const bundledPkgPath = path.join(tmpDir, "bundle", "node_modules", "openclaw", "package.json");
+    const bundledPkgPath = path.join(tmpDir, "bundle", "package.json");
     const runtimePkgPath = getManagedOpenclawPackageJsonPath({ runtimeDir });
-    fs.mkdirSync(path.dirname(bundledPkgPath), { recursive: true });
-    fs.mkdirSync(path.dirname(runtimePkgPath), { recursive: true });
-    fs.writeFileSync(
-      bundledPkgPath,
-      JSON.stringify({ name: "openclaw", version: "2026.4.1" }),
-    );
-    fs.writeFileSync(
-      runtimePkgPath,
-      JSON.stringify({ name: "openclaw", version: "2026.4.5" }),
-    );
+    writeOpenclawPackage({
+      packageRoot: path.dirname(bundledPkgPath),
+      version: "2026.4.1",
+    });
+    writeOpenclawPackage({
+      packageRoot: getManagedOpenclawPackageRoot({ runtimeDir }),
+      version: "2026.4.5",
+    });
     const execSyncImpl = vi.fn();
 
     const result = syncManagedOpenclawRuntimeWithBundled({
