@@ -29,14 +29,10 @@ const {
   prependManagedOpenclawBinToPath,
   syncManagedOpenclawRuntimeWithBundled,
 } = require("../lib/server/openclaw-runtime");
-
-const kUsageTrackerPluginPath = path.resolve(
-  __dirname,
-  "..",
-  "lib",
-  "plugin",
-  "usage-tracker",
-);
+const {
+  ensurePluginsShell,
+  ensureUsageTrackerPluginEntry,
+} = require("../lib/server/usage-tracker-config");
 
 // ---------------------------------------------------------------------------
 // Parse CLI flags
@@ -900,10 +896,7 @@ if (fs.existsSync(configPath)) {
   try {
     const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
     if (!cfg.channels) cfg.channels = {};
-    if (!cfg.plugins) cfg.plugins = {};
-    if (!cfg.plugins.load) cfg.plugins.load = {};
-    if (!Array.isArray(cfg.plugins.load.paths)) cfg.plugins.load.paths = [];
-    if (!cfg.plugins.entries) cfg.plugins.entries = {};
+    ensurePluginsShell(cfg);
     let changed = false;
 
     if (process.env.TELEGRAM_BOT_TOKEN && !cfg.channels.telegram) {
@@ -929,12 +922,7 @@ if (fs.existsSync(configPath)) {
       console.log("[alphaclaw] Discord added");
       changed = true;
     }
-    if (!cfg.plugins.load.paths.includes(kUsageTrackerPluginPath)) {
-      cfg.plugins.load.paths.push(kUsageTrackerPluginPath);
-      changed = true;
-    }
-    if (cfg.plugins.entries["usage-tracker"]?.enabled !== true) {
-      cfg.plugins.entries["usage-tracker"] = { enabled: true };
+    if (ensureUsageTrackerPluginEntry(cfg)) {
       changed = true;
     }
 
