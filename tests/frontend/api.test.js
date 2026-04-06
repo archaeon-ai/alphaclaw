@@ -96,6 +96,25 @@ describe("frontend/api", () => {
     await assertion;
   });
 
+  it("waitForAlphaclawRestart uses a custom timeout error message when provided", async () => {
+    vi.useFakeTimers();
+    global.fetch.mockRejectedValue(new Error("offline"));
+    const api = await loadApiModule();
+
+    const promise = api.waitForAlphaclawRestart({
+      initialDelayMs: 0,
+      intervalMs: 5,
+      timeoutMs: 15,
+      timeoutErrorMessage: "OpenClaw update is taking longer than expected",
+    });
+    const assertion = expect(promise).rejects.toThrow(
+      "OpenClaw update is taking longer than expected",
+    );
+
+    await vi.runAllTimersAsync();
+    await assertion;
+  });
+
   it("runOnboard sends vars and modelKey payload", async () => {
     global.fetch.mockResolvedValue(mockJsonResponse(200, { ok: true }));
     const api = await loadApiModule();
