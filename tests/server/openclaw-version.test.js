@@ -1,21 +1,24 @@
 const fs = require("fs");
 const path = require("path");
 const childProcess = require("child_process");
+const {
+  getManagedOpenclawBinPath,
+} = require("../../lib/server/openclaw-runtime");
 
 const { kRootDir } = require("../../lib/server/constants");
 const modulePath = require.resolve("../../lib/server/openclaw-version");
-const originalExecSync = childProcess.execSync;
+const originalExecFileSync = childProcess.execFileSync;
 
-const loadVersionModule = ({ execSyncMock }) => {
-  childProcess.execSync = execSyncMock;
+const loadVersionModule = ({ execFileSyncMock }) => {
+  childProcess.execFileSync = execFileSyncMock;
   delete require.cache[modulePath];
   return require(modulePath);
 };
 
 const createService = ({ isOnboarded = false } = {}) => {
-  const execSyncMock = vi.fn();
+  const execFileSyncMock = vi.fn();
   const { createOpenclawVersionService } = loadVersionModule({
-    execSyncMock,
+    execFileSyncMock,
   });
   const gatewayEnv = vi.fn(() => ({ OPENCLAW_GATEWAY_TOKEN: "token" }));
   const restartGateway = vi.fn();
@@ -24,35 +27,35 @@ const createService = ({ isOnboarded = false } = {}) => {
     restartGateway,
     isOnboarded: () => isOnboarded,
   });
-  return { service, gatewayEnv, restartGateway, execSyncMock };
+  return { service, gatewayEnv, restartGateway, execFileSyncMock };
 };
 
 describe("server/openclaw-version", () => {
   afterEach(() => {
-    childProcess.execSync = originalExecSync;
+    childProcess.execFileSync = originalExecFileSync;
     delete require.cache[modulePath];
   });
 
   it("reads current version and uses cache within TTL", () => {
-    const { service, gatewayEnv, execSyncMock } = createService();
-    execSyncMock.mockReturnValue("openclaw 1.2.3\n");
+    const { service, gatewayEnv, execFileSyncMock } = createService();
+    execFileSyncMock.mockReturnValue("openclaw 1.2.3\n");
 
     const first = service.readOpenclawVersion();
     const second = service.readOpenclawVersion();
 
     expect(first).toBe("1.2.3");
     expect(second).toBe("1.2.3");
-    expect(execSyncMock).toHaveBeenCalledTimes(1);
-    expect(execSyncMock).toHaveBeenCalledWith("openclaw --version", {
+    expect(execFileSyncMock).toHaveBeenCalledTimes(1);
+    expect(execFileSyncMock).toHaveBeenCalledWith("openclaw", ["--version"], {
       env: gatewayEnv(),
-      timeout: 5000,
+      timeout: 10000,
       encoding: "utf8",
     });
   });
 
   it("returns update availability when latest version is newer", async () => {
-    const { service, execSyncMock } = createService();
-    execSyncMock.mockReturnValueOnce("openclaw 1.2.3").mockReturnValueOnce(
+    const { service, execFileSyncMock } = createService();
+    execFileSyncMock.mockReturnValueOnce("openclaw 1.2.3").mockReturnValueOnce(
       JSON.stringify({
         availability: { available: true, latestVersion: "1.3.0" },
       }),
@@ -69,8 +72,8 @@ describe("server/openclaw-version", () => {
   });
 
   it("parses update status json from noisy CLI output", async () => {
-    const { service, execSyncMock } = createService();
-    execSyncMock
+    const { service, execFileSyncMock } = createService();
+    execFileSyncMock
       .mockReturnValueOnce("openclaw 1.2.3")
       .mockReturnValueOnce(
         `[plugins] [auth]\n${JSON.stringify({
@@ -89,8 +92,8 @@ describe("server/openclaw-version", () => {
   });
 
   it("returns error status when update status command fails", async () => {
-    const { service, execSyncMock } = createService();
-    execSyncMock
+    const { service, execFileSyncMock } = createService();
+    execFileSyncMock
       .mockReturnValueOnce("openclaw 1.2.3")
       .mockImplementationOnce(() => {
         throw new Error("status check failed");
@@ -106,8 +109,8 @@ describe("server/openclaw-version", () => {
   });
 
   it("queues an exact openclaw update and requests restart", async () => {
-    const { service, restartGateway, execSyncMock } = createService();
-    execSyncMock.mockReturnValueOnce("openclaw 1.0.0").mockReturnValueOnce(
+    const { service, restartGateway, execFileSyncMock } = createService();
+    execFileSyncMock.mockReturnValueOnce("openclaw 1.0.0").mockReturnValueOnce(
       JSON.stringify({
         availability: { available: true, latestVersion: "1.1.0" },
       }),
@@ -144,10 +147,10 @@ describe("server/openclaw-version", () => {
   });
 
   it("returns without restart when openclaw is already current", async () => {
-    const { service, restartGateway, execSyncMock } = createService({
+    const { service, restartGateway, execFileSyncMock } = createService({
       isOnboarded: true,
     });
-    execSyncMock.mockReturnValueOnce("openclaw 1.1.0").mockReturnValueOnce(
+    execFileSyncMock.mockReturnValueOnce("openclaw 1.1.0").mockReturnValueOnce(
       JSON.stringify({
         availability: { available: false, latestVersion: "1.1.0" },
       }),
@@ -172,8 +175,8 @@ describe("server/openclaw-version", () => {
   });
 
   it("falls back to latest marker when version resolution fails", async () => {
-    const { service, execSyncMock } = createService();
-    execSyncMock
+    const { service, execFileSyncMock } = createService();
+    execFileSyncMock
       .mockReturnValueOnce("openclaw 1.0.0")
       .mockImplementationOnce(() => {
         throw new Error("status check failed");
@@ -207,8 +210,8 @@ describe("server/openclaw-version", () => {
   });
 
   it("returns 500 when it cannot write the pending update marker", async () => {
-    const { service, execSyncMock } = createService();
-    execSyncMock.mockReturnValueOnce("openclaw 1.0.0").mockReturnValueOnce(
+    const { service, execFileSyncMock } = createService();
+    execFileSyncMock.mockReturnValueOnce("openclaw 1.0.0").mockReturnValueOnce(
       JSON.stringify({
         availability: { available: true, latestVersion: "1.1.0" },
       }),
@@ -227,6 +230,55 @@ describe("server/openclaw-version", () => {
     expect(result.body.error).toContain("disk full");
 
     writeSpy.mockRestore();
+  });
+
+  it("uses the managed OpenClaw binary for version and update-status probes when present", async () => {
+    const existsSpy = vi.spyOn(fs, "existsSync");
+    const managedBinPath = getManagedOpenclawBinPath();
+    existsSpy.mockImplementation((targetPath) => {
+      if (targetPath === managedBinPath) return true;
+      return false;
+    });
+    const { service, execFileSyncMock, gatewayEnv } = createService();
+    execFileSyncMock
+      .mockReturnValueOnce("openclaw 2026.4.1")
+      .mockReturnValueOnce(
+        JSON.stringify({
+          availability: { available: true, latestVersion: "2026.4.5" },
+        }),
+      );
+
+    const status = await service.getVersionStatus(true);
+
+    expect(status).toEqual({
+      ok: true,
+      currentVersion: "2026.4.1",
+      latestVersion: "2026.4.5",
+      hasUpdate: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(
+      1,
+      managedBinPath,
+      ["--version"],
+      {
+        env: gatewayEnv(),
+        timeout: 10000,
+        encoding: "utf8",
+      },
+    );
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(
+      2,
+      managedBinPath,
+      ["update", "status", "--json"],
+      {
+        env: gatewayEnv(),
+        timeout: 30000,
+        maxBuffer: 4 * 1024 * 1024,
+        encoding: "utf8",
+      },
+    );
+
+    existsSpy.mockRestore();
   });
 
 });
