@@ -46,6 +46,11 @@ const writeAlphaclawPackage = ({
   );
 };
 
+const parsePackDestination = (command) => {
+  const match = String(command || "").match(/--pack-destination '([^']+)'/);
+  return match ? match[1] : "";
+};
+
 describe("server/alphaclaw-runtime", () => {
   let tmpDir;
 
@@ -156,6 +161,13 @@ describe("server/alphaclaw-runtime", () => {
       version: "0.8.9",
     });
     const execSyncImpl = vi.fn((command, options) => {
+      if (String(command).startsWith("npm pack ")) {
+        const packDestination = parsePackDestination(command);
+        const tarballPath = path.join(packDestination, "alphaclaw-runtime.tgz");
+        fs.mkdirSync(packDestination, { recursive: true });
+        fs.writeFileSync(tarballPath, "tarball");
+        return "alphaclaw-runtime.tgz\n";
+      }
       writeAlphaclawPackage({
         packageRoot: getManagedAlphaclawPackageRoot({ runtimeDir: options.cwd }),
         version: "0.8.9",
@@ -177,8 +189,9 @@ describe("server/alphaclaw-runtime", () => {
       bundledVersion: "0.8.9",
       runtimeVersion: "0.8.9",
     });
+    expect(execSyncImpl.mock.calls[0][0]).toContain(`npm pack '${bundleDir}'`);
     expect(execSyncImpl).toHaveBeenCalledWith(
-      `npm install '${bundleDir}' --omit=dev --no-save --save=false --package-lock=false --prefer-online`,
+      expect.stringMatching(/npm install '.*alphaclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/),
       {
         cwd: runtimeDir,
         stdio: "inherit",
@@ -202,6 +215,13 @@ describe("server/alphaclaw-runtime", () => {
       usageTrackerBody: "module.exports = 'old';\n",
     });
     const execSyncImpl = vi.fn((command, options) => {
+      if (String(command).startsWith("npm pack ")) {
+        const packDestination = parsePackDestination(command);
+        const tarballPath = path.join(packDestination, "alphaclaw-runtime.tgz");
+        fs.mkdirSync(packDestination, { recursive: true });
+        fs.writeFileSync(tarballPath, "tarball");
+        return "alphaclaw-runtime.tgz\n";
+      }
       writeAlphaclawPackage({
         packageRoot: getManagedAlphaclawPackageRoot({ runtimeDir: options.cwd }),
         version: "0.8.9",
@@ -224,8 +244,9 @@ describe("server/alphaclaw-runtime", () => {
       bundledVersion: "0.8.9",
       runtimeVersion: "0.8.9",
     });
+    expect(execSyncImpl.mock.calls[0][0]).toContain(`npm pack '${bundleDir}'`);
     expect(execSyncImpl).toHaveBeenCalledWith(
-      `npm install '${bundleDir}' --omit=dev --no-save --save=false --package-lock=false --prefer-online`,
+      expect.stringMatching(/npm install '.*alphaclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/),
       {
         cwd: runtimeDir,
         stdio: "inherit",

@@ -39,6 +39,11 @@ const writeOpenclawPackage = ({
   fs.writeFileSync(path.join(packageRoot, "lib", "runtime.js"), markerBody);
 };
 
+const parsePackDestination = (command) => {
+  const match = String(command || "").match(/--pack-destination '([^']+)'/);
+  return match ? match[1] : "";
+};
+
 describe("server/openclaw-runtime", () => {
   let tmpDir;
 
@@ -95,6 +100,9 @@ describe("server/openclaw-runtime", () => {
   it("reads the bundled OpenClaw version from the installed package metadata", () => {
     const bundleDir = path.join(tmpDir, "bundle");
     const bundledPkgPath = path.join(bundleDir, "package.json");
+    const bundledEntryPath = path.join(bundleDir, "dist", "index.js");
+    fs.mkdirSync(path.dirname(bundledEntryPath), { recursive: true });
+    fs.writeFileSync(bundledEntryPath, "export default {};\n");
     writeOpenclawPackage({
       packageRoot: bundleDir,
       version: "2026.4.6",
@@ -104,7 +112,7 @@ describe("server/openclaw-runtime", () => {
       readBundledOpenclawVersion({
         fsModule: fs,
         resolveImpl: (request) => {
-          if (request === "openclaw/package.json") return bundledPkgPath;
+          if (request === "openclaw") return bundledEntryPath;
           throw new Error(`unexpected resolve ${request}`);
         },
       }),
@@ -211,11 +219,21 @@ describe("server/openclaw-runtime", () => {
     const runtimeDir = getManagedOpenclawRuntimeDir({ rootDir: tmpDir });
     const bundleDir = path.join(tmpDir, "bundle");
     const bundledPkgPath = path.join(bundleDir, "package.json");
+    const bundledEntryPath = path.join(bundleDir, "dist", "index.js");
+    fs.mkdirSync(path.dirname(bundledEntryPath), { recursive: true });
+    fs.writeFileSync(bundledEntryPath, "export default {};\n");
     writeOpenclawPackage({
       packageRoot: bundleDir,
       version: "2026.4.5",
     });
     const execSyncImpl = vi.fn((command, options) => {
+      if (String(command).startsWith("npm pack ")) {
+        const packDestination = parsePackDestination(command);
+        const tarballPath = path.join(packDestination, "openclaw-runtime.tgz");
+        fs.mkdirSync(packDestination, { recursive: true });
+        fs.writeFileSync(tarballPath, "tarball");
+        return "openclaw-runtime.tgz\n";
+      }
       if (!String(command).includes("npm install")) return;
       writeOpenclawPackage({
         packageRoot: getManagedOpenclawPackageRoot({ runtimeDir: options.cwd }),
@@ -229,7 +247,7 @@ describe("server/openclaw-runtime", () => {
       logger: { log: vi.fn() },
       runtimeDir,
       resolveImpl: (request) => {
-        if (request === "openclaw/package.json") return bundledPkgPath;
+        if (request === "openclaw") return bundledEntryPath;
         throw new Error(`unexpected resolve ${request}`);
       },
       alphaclawRoot: path.join(tmpDir, "alphaclaw-no-patches"),
@@ -241,8 +259,9 @@ describe("server/openclaw-runtime", () => {
       bundledVersion: "2026.4.5",
       runtimeVersion: "2026.4.5",
     });
+    expect(execSyncImpl.mock.calls[0][0]).toContain(`npm pack '${bundleDir}'`);
     expect(execSyncImpl).toHaveBeenCalledWith(
-      `npm install '${bundleDir}' --omit=dev --no-save --save=false --package-lock=false --prefer-online`,
+      expect.stringMatching(/npm install '.*openclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/),
       {
         cwd: runtimeDir,
         stdio: "inherit",
@@ -255,6 +274,9 @@ describe("server/openclaw-runtime", () => {
     const runtimeDir = getManagedOpenclawRuntimeDir({ rootDir: tmpDir });
     const bundleDir = path.join(tmpDir, "bundle");
     const bundledPkgPath = path.join(bundleDir, "package.json");
+    const bundledEntryPath = path.join(bundleDir, "dist", "index.js");
+    fs.mkdirSync(path.dirname(bundledEntryPath), { recursive: true });
+    fs.writeFileSync(bundledEntryPath, "export default {};\n");
     writeOpenclawPackage({
       packageRoot: bundleDir,
       version: "2026.4.5",
@@ -266,6 +288,13 @@ describe("server/openclaw-runtime", () => {
       markerBody: "module.exports = 'old';\n",
     });
     const execSyncImpl = vi.fn((command, options) => {
+      if (String(command).startsWith("npm pack ")) {
+        const packDestination = parsePackDestination(command);
+        const tarballPath = path.join(packDestination, "openclaw-runtime.tgz");
+        fs.mkdirSync(packDestination, { recursive: true });
+        fs.writeFileSync(tarballPath, "tarball");
+        return "openclaw-runtime.tgz\n";
+      }
       if (!String(command).includes("npm install")) return;
       writeOpenclawPackage({
         packageRoot: getManagedOpenclawPackageRoot({ runtimeDir: options.cwd }),
@@ -280,7 +309,7 @@ describe("server/openclaw-runtime", () => {
       logger: { log: vi.fn() },
       runtimeDir,
       resolveImpl: (request) => {
-        if (request === "openclaw/package.json") return bundledPkgPath;
+        if (request === "openclaw") return bundledEntryPath;
         throw new Error(`unexpected resolve ${request}`);
       },
       alphaclawRoot: path.join(tmpDir, "alphaclaw-no-patches"),
@@ -292,8 +321,9 @@ describe("server/openclaw-runtime", () => {
       bundledVersion: "2026.4.5",
       runtimeVersion: "2026.4.5",
     });
+    expect(execSyncImpl.mock.calls[0][0]).toContain(`npm pack '${bundleDir}'`);
     expect(execSyncImpl).toHaveBeenCalledWith(
-      `npm install '${bundleDir}' --omit=dev --no-save --save=false --package-lock=false --prefer-online`,
+      expect.stringMatching(/npm install '.*openclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/),
       {
         cwd: runtimeDir,
         stdio: "inherit",
@@ -305,7 +335,10 @@ describe("server/openclaw-runtime", () => {
   it("does not downgrade a newer managed runtime during bundled sync", () => {
     const runtimeDir = getManagedOpenclawRuntimeDir({ rootDir: tmpDir });
     const bundledPkgPath = path.join(tmpDir, "bundle", "package.json");
+    const bundledEntryPath = path.join(tmpDir, "bundle", "dist", "index.js");
     const runtimePkgPath = getManagedOpenclawPackageJsonPath({ runtimeDir });
+    fs.mkdirSync(path.dirname(bundledEntryPath), { recursive: true });
+    fs.writeFileSync(bundledEntryPath, "export default {};\n");
     writeOpenclawPackage({
       packageRoot: path.dirname(bundledPkgPath),
       version: "2026.4.1",
@@ -322,7 +355,7 @@ describe("server/openclaw-runtime", () => {
       logger: { log: vi.fn() },
       runtimeDir,
       resolveImpl: (request) => {
-        if (request === "openclaw/package.json") return bundledPkgPath;
+        if (request === "openclaw") return bundledEntryPath;
         throw new Error(`unexpected resolve ${request}`);
       },
     });
