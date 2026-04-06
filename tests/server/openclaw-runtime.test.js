@@ -332,6 +332,64 @@ describe("server/openclaw-runtime", () => {
     );
   });
 
+  it("refreshes the managed runtime when the installed package root is symlinked", () => {
+    const runtimeDir = getManagedOpenclawRuntimeDir({ rootDir: tmpDir });
+    const bundleDir = path.join(tmpDir, "bundle");
+    const bundledEntryPath = path.join(bundleDir, "dist", "index.js");
+    const runtimePackageRoot = getManagedOpenclawPackageRoot({ runtimeDir });
+    fs.mkdirSync(path.dirname(bundledEntryPath), { recursive: true });
+    fs.writeFileSync(bundledEntryPath, "export default {};\n");
+    writeOpenclawPackage({
+      packageRoot: bundleDir,
+      version: "2026.4.5",
+    });
+    fs.mkdirSync(path.dirname(runtimePackageRoot), { recursive: true });
+    fs.symlinkSync(bundleDir, runtimePackageRoot, "dir");
+    const execSyncImpl = vi.fn((command, options) => {
+      if (String(command).startsWith("npm pack ")) {
+        const packDestination = parsePackDestination(command);
+        const tarballPath = path.join(packDestination, "openclaw-runtime.tgz");
+        fs.mkdirSync(packDestination, { recursive: true });
+        fs.writeFileSync(tarballPath, "tarball");
+        return "openclaw-runtime.tgz\n";
+      }
+      if (!String(command).includes("npm install")) return;
+      fs.rmSync(runtimePackageRoot, { recursive: true, force: true });
+      writeOpenclawPackage({
+        packageRoot: getManagedOpenclawPackageRoot({ runtimeDir: options.cwd }),
+        version: "2026.4.5",
+      });
+    });
+
+    const result = syncManagedOpenclawRuntimeWithBundled({
+      execSyncImpl,
+      fsModule: fs,
+      logger: { log: vi.fn() },
+      runtimeDir,
+      resolveImpl: (request) => {
+        if (request === "openclaw") return bundledEntryPath;
+        throw new Error(`unexpected resolve ${request}`);
+      },
+      alphaclawRoot: path.join(tmpDir, "alphaclaw-no-patches"),
+    });
+
+    expect(result).toEqual({
+      checked: true,
+      synced: true,
+      bundledVersion: "2026.4.5",
+      runtimeVersion: "2026.4.5",
+    });
+    expect(execSyncImpl.mock.calls[0][0]).toContain(`npm pack '${bundleDir}'`);
+    expect(execSyncImpl).toHaveBeenCalledWith(
+      expect.stringMatching(/npm install '.*openclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/),
+      {
+        cwd: runtimeDir,
+        stdio: "inherit",
+        timeout: 180000,
+      },
+    );
+  });
+
   it("does not downgrade a newer managed runtime during bundled sync", () => {
     const runtimeDir = getManagedOpenclawRuntimeDir({ rootDir: tmpDir });
     const bundledPkgPath = path.join(tmpDir, "bundle", "package.json");

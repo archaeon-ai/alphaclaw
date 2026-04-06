@@ -255,6 +255,58 @@ describe("server/alphaclaw-runtime", () => {
     );
   });
 
+  it("refreshes the managed runtime when the installed package root is symlinked", () => {
+    const runtimeDir = getManagedAlphaclawRuntimeDir({ rootDir: tmpDir });
+    const bundleDir = path.join(tmpDir, "bundle");
+    const packageJsonPath = path.join(bundleDir, "package.json");
+    const runtimePackageRoot = getManagedAlphaclawPackageRoot({ runtimeDir });
+    writeAlphaclawPackage({
+      packageRoot: bundleDir,
+      version: "0.8.9",
+    });
+    fs.mkdirSync(path.dirname(runtimePackageRoot), { recursive: true });
+    fs.symlinkSync(bundleDir, runtimePackageRoot, "dir");
+    const execSyncImpl = vi.fn((command, options) => {
+      if (String(command).startsWith("npm pack ")) {
+        const packDestination = parsePackDestination(command);
+        const tarballPath = path.join(packDestination, "alphaclaw-runtime.tgz");
+        fs.mkdirSync(packDestination, { recursive: true });
+        fs.writeFileSync(tarballPath, "tarball");
+        return "alphaclaw-runtime.tgz\n";
+      }
+      fs.rmSync(runtimePackageRoot, { recursive: true, force: true });
+      writeAlphaclawPackage({
+        packageRoot: getManagedAlphaclawPackageRoot({ runtimeDir: options.cwd }),
+        version: "0.8.9",
+      });
+    });
+
+    const result = syncManagedAlphaclawRuntimeWithBundled({
+      execSyncImpl,
+      fsModule: fs,
+      logger: { log: vi.fn() },
+      runtimeDir,
+      packageRoot: bundleDir,
+      packageJsonPath,
+    });
+
+    expect(result).toEqual({
+      checked: true,
+      synced: true,
+      bundledVersion: "0.8.9",
+      runtimeVersion: "0.8.9",
+    });
+    expect(execSyncImpl.mock.calls[0][0]).toContain(`npm pack '${bundleDir}'`);
+    expect(execSyncImpl).toHaveBeenCalledWith(
+      expect.stringMatching(/npm install '.*alphaclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/),
+      {
+        cwd: runtimeDir,
+        stdio: "inherit",
+        timeout: 180000,
+      },
+    );
+  });
+
   it("does not downgrade a newer managed runtime during bundled sync", () => {
     const runtimeDir = getManagedAlphaclawRuntimeDir({ rootDir: tmpDir });
     const bundleDir = path.join(tmpDir, "bundle");
