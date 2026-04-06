@@ -15,6 +15,7 @@ const {
   prependManagedOpenclawBinToPath,
   readBundledOpenclawVersion,
   readManagedOpenclawRuntimeVersion,
+  runManagedOpenclawBundledPluginPostinstall,
   syncManagedOpenclawRuntimeWithBundled,
 } = require("../../lib/server/openclaw-runtime");
 
@@ -204,14 +205,84 @@ describe("server/openclaw-runtime", () => {
     });
     expect(execSyncImpl).toHaveBeenCalledWith(
       "npm install 'openclaw@2026.4.1' --omit=dev --no-save --save=false --package-lock=false --prefer-online",
-      {
+      expect.objectContaining({
         cwd: runtimeDir,
+        env: expect.objectContaining({
+          OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: "1",
+        }),
         stdio: "inherit",
         timeout: 180000,
-      },
+      }),
     );
     expect(execSyncImpl.mock.calls.some(([command]) => String(command).includes("patch-package"))).toBe(
       true,
+    );
+  });
+
+  it("runs bundled plugin postinstall after the parent install completes", () => {
+    const runtimeDir = getManagedOpenclawRuntimeDir({ rootDir: tmpDir });
+    const packageRoot = getManagedOpenclawPackageRoot({ runtimeDir });
+    const postinstallScriptPath = path.join(
+      packageRoot,
+      "scripts",
+      "postinstall-bundled-plugins.mjs",
+    );
+    fs.mkdirSync(path.dirname(postinstallScriptPath), { recursive: true });
+    fs.writeFileSync(postinstallScriptPath, "console.log('postinstall');\n");
+    const execSyncImpl = vi.fn();
+    const logger = { log: vi.fn() };
+
+    const ran = runManagedOpenclawBundledPluginPostinstall({
+      execSyncImpl,
+      fsModule: fs,
+      logger,
+      runtimeDir,
+    });
+
+    expect(ran).toBe(true);
+    expect(execSyncImpl).toHaveBeenCalledTimes(1);
+    expect(String(execSyncImpl.mock.calls[0][0])).toContain(process.execPath);
+    expect(String(execSyncImpl.mock.calls[0][0])).toContain(postinstallScriptPath);
+    expect(execSyncImpl.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        cwd: packageRoot,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 180000,
+      }),
+    );
+    expect(execSyncImpl.mock.calls[0][1].env).not.toHaveProperty(
+      "OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL",
+    );
+    expect(logger.log).not.toHaveBeenCalled();
+  });
+
+  it("throws when bundled plugin postinstall reports a runtime-deps install failure", () => {
+    const runtimeDir = getManagedOpenclawRuntimeDir({ rootDir: tmpDir });
+    const packageRoot = getManagedOpenclawPackageRoot({ runtimeDir });
+    const postinstallScriptPath = path.join(
+      packageRoot,
+      "scripts",
+      "postinstall-bundled-plugins.mjs",
+    );
+    fs.mkdirSync(path.dirname(postinstallScriptPath), { recursive: true });
+    fs.writeFileSync(postinstallScriptPath, "console.log('postinstall');\n");
+    const execSyncImpl = vi.fn(
+      () =>
+        "[postinstall] could not install bundled plugin deps: Error: npm error ENOSPC",
+    );
+    const logger = { log: vi.fn() };
+
+    expect(() =>
+      runManagedOpenclawBundledPluginPostinstall({
+        execSyncImpl,
+        fsModule: fs,
+        logger,
+        runtimeDir,
+      }),
+    ).toThrow(/could not install bundled plugin deps/);
+    expect(logger.log).toHaveBeenCalledWith(
+      "[postinstall] could not install bundled plugin deps: Error: npm error ENOSPC",
     );
   });
 
@@ -260,13 +331,18 @@ describe("server/openclaw-runtime", () => {
       runtimeVersion: "2026.4.5",
     });
     expect(execSyncImpl.mock.calls[0][0]).toContain(`npm pack '${bundleDir}'`);
-    expect(execSyncImpl).toHaveBeenCalledWith(
-      expect.stringMatching(/npm install '.*openclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/),
-      {
+    expect(String(execSyncImpl.mock.calls[1][0])).toMatch(
+      /npm install '.*openclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/,
+    );
+    expect(execSyncImpl.mock.calls[1][1]).toEqual(
+      expect.objectContaining({
         cwd: runtimeDir,
+        env: expect.objectContaining({
+          OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: "1",
+        }),
         stdio: "inherit",
         timeout: 180000,
-      },
+      }),
     );
   });
 
@@ -322,13 +398,18 @@ describe("server/openclaw-runtime", () => {
       runtimeVersion: "2026.4.5",
     });
     expect(execSyncImpl.mock.calls[0][0]).toContain(`npm pack '${bundleDir}'`);
-    expect(execSyncImpl).toHaveBeenCalledWith(
-      expect.stringMatching(/npm install '.*openclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/),
-      {
+    expect(String(execSyncImpl.mock.calls[1][0])).toMatch(
+      /npm install '.*openclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/,
+    );
+    expect(execSyncImpl.mock.calls[1][1]).toEqual(
+      expect.objectContaining({
         cwd: runtimeDir,
+        env: expect.objectContaining({
+          OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: "1",
+        }),
         stdio: "inherit",
         timeout: 180000,
-      },
+      }),
     );
   });
 
@@ -380,13 +461,18 @@ describe("server/openclaw-runtime", () => {
       runtimeVersion: "2026.4.5",
     });
     expect(execSyncImpl.mock.calls[0][0]).toContain(`npm pack '${bundleDir}'`);
-    expect(execSyncImpl).toHaveBeenCalledWith(
-      expect.stringMatching(/npm install '.*openclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/),
-      {
+    expect(String(execSyncImpl.mock.calls[1][0])).toMatch(
+      /npm install '.*openclaw-runtime\.tgz' --omit=dev --no-save --save=false --package-lock=false --prefer-online/,
+    );
+    expect(execSyncImpl.mock.calls[1][1]).toEqual(
+      expect.objectContaining({
         cwd: runtimeDir,
+        env: expect.objectContaining({
+          OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: "1",
+        }),
         stdio: "inherit",
         timeout: 180000,
-      },
+      }),
     );
   });
 

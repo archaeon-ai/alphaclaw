@@ -70,11 +70,16 @@ describe("server/pending-openclaw-update", () => {
     expect(execSyncImpl.mock.calls[0][0]).toBe(
       "npm install 'openclaw@1.1.0' --omit=dev --no-save --save=false --package-lock=false --prefer-online",
     );
-    expect(execSyncImpl.mock.calls[0][1]).toEqual({
-      cwd: expect.stringMatching(new RegExp(`^${runtimeDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-pending-[^/]+$`)),
-      stdio: "inherit",
-      timeout: 180000,
-    });
+    expect(execSyncImpl.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        cwd: expect.stringMatching(new RegExp(`^${runtimeDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-pending-[^/]+$`)),
+        env: expect.objectContaining({
+          OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: "1",
+        }),
+        stdio: "inherit",
+        timeout: 180000,
+      }),
+    );
     expect(
       JSON.parse(fs.readFileSync(path.join(runtimeDir, "package.json"), "utf8")),
     ).toEqual({
