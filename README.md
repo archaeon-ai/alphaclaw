@@ -17,10 +17,6 @@
 
 <p align="center"><em>First deploy to first message in under five minutes.</em></p>
 
-<p align="center">
-  <a href="https://railway.com/deploy/openclaw-fast-start?referralCode=jcFhp_&utm_medium=integration&utm_source=template&utm_campaign=generic"><img src="https://railway.com/button.svg" alt="Deploy on Railway" /></a>
-  <a href="https://render.com/deploy?repo=https://github.com/chrysb/openclaw-render-template"><img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render" /></a>
-</p>
 
 > **Platform:** AlphaClaw currently targets Docker/Linux deployments. macOS local development is not yet supported.
 
@@ -44,7 +40,7 @@
 
 ## Why AlphaClaw
 
-- **Zero to production in one deploy:** Railway/Render templates ship a complete stack — no manual gateway setup.
+- **Zero to production in one deploy:** Ships a complete stack — no manual gateway setup.
 - **Self-healing:** Watchdog detects crashes, enters repair mode, relaunches the gateway, and notifies you.
 - **Everything in the browser:** No SSH, no config files to hand-edit, no CLI required after first deploy.
 - **Stays out of the way:** AlphaClaw manages infrastructure; OpenClaw handles the AI.
@@ -54,15 +50,6 @@
 AlphaClaw simply wraps OpenClaw, it's not a dependency. Remove AlphaClaw and your agent keeps running. Nothing proprietary, nothing to migrate.
 
 ## Quick Start
-
-### Deploy (recommended)
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/openclaw-fast-start?referralCode=jcFhp_&utm_medium=integration&utm_source=template&utm_campaign=generic)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/chrysb/openclaw-render-template)
-
-Set `SETUP_PASSWORD` at deploy time and visit your deployment URL. The welcome wizard handles the rest.
-
-> **Railway users:** after deploying, upgrade to the **Hobby plan** and redeploy to ensure your service has at least **8 GB of RAM**. The Trial plan's memory limit can cause out-of-memory crashes during normal operation.
 
 ### Local / Docker
 

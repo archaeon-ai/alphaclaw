@@ -1,0 +1,70 @@
+# npm audit report
+
+@anthropic-ai/sdk  0.79.0 - 0.80.0
+Severity: moderate
+Claude SDK for TypeScript: Memory Tool Path Validation Allows Sandbox Escape to Sibling Directories - https://github.com/advisories/GHSA-5474-4w2j-mq4c
+fix available via `npm audit fix`
+node_modules/@anthropic-ai/sdk
+
+@hono/node-server  <1.19.13
+Severity: moderate
+@hono/node-server: Middleware bypass via repeated slashes in serveStatic - https://github.com/advisories/GHSA-92pp-h63x-v22m
+fix available via `npm audit fix`
+node_modules/@hono/node-server
+
+basic-ftp  5.2.0
+Severity: high
+basic-ftp has FTP Command Injection via CRLF - https://github.com/advisories/GHSA-chqc-8p9q-pq6q
+fix available via `npm audit fix`
+node_modules/basic-ftp
+
+hono  <=4.12.11
+Severity: moderate
+Hono missing validation of cookie name on write path in setCookie() - https://github.com/advisories/GHSA-26pp-8wgv-hjvm
+Hono: Non-breaking space prefix bypass in cookie name handling in getCookie() - https://github.com/advisories/GHSA-r5rp-j6wh-rvv4
+Hono has incorrect IP matching in ipRestriction() for IPv4-mapped IPv6 addresses - https://github.com/advisories/GHSA-xpcf-pg52-r92g
+Hono: Path traversal in toSSG() allows writing files outside the output directory - https://github.com/advisories/GHSA-xf4j-xp2r-rqqx
+Hono: Middleware bypass via repeated slashes in serveStatic - https://github.com/advisories/GHSA-wmmm-f939-6g9c
+fix available via `npm audit fix --force`
+Will install openclaw@2026.3.8, which is a breaking change
+node_modules/hono
+  openclaw  2026.1.29-beta.1 - 2026.1.29 || 2026.2.1 - 2026.2.9 || >=2026.3.11-beta.1
+  Depends on vulnerable versions of hono
+  node_modules/openclaw
+
+path-to-regexp  <=0.1.12 || 8.0.0 - 8.3.0
+Severity: high
+path-to-regexp vulnerable to Regular Expression Denial of Service via multiple route parameters - https://github.com/advisories/GHSA-37ch-88jc-xwx2
+path-to-regexp vulnerable to Denial of Service via sequential optional groups - https://github.com/advisories/GHSA-j3q9-mxjg-w52f
+path-to-regexp vulnerable to Regular Expression Denial of Service via multiple wildcards - https://github.com/advisories/GHSA-27v5-c462-wpq7
+fix available via `npm audit fix`
+node_modules/path-to-regexp
+node_modules/router/node_modules/path-to-regexp
+
+picomatch  <=2.3.1 || 4.0.0 - 4.0.3
+Severity: high
+Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching - https://github.com/advisories/GHSA-3v7f-55p6-f55p
+Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching - https://github.com/advisories/GHSA-3v7f-55p6-f55p
+Picomatch has a ReDoS vulnerability via extglob quantifiers - https://github.com/advisories/GHSA-c2c7-rcm5-vvqj
+Picomatch has a ReDoS vulnerability via extglob quantifiers - https://github.com/advisories/GHSA-c2c7-rcm5-vvqj
+fix available via `npm audit fix`
+node_modules/anymatch/node_modules/picomatch
+node_modules/micromatch/node_modules/picomatch
+node_modules/picomatch
+node_modules/tailwindcss/node_modules/picomatch
+
+vite  7.0.0 - 7.3.1
+Severity: high
+Vite Vulnerable to Path Traversal in Optimized Deps `.map` Handling - https://github.com/advisories/GHSA-4w7w-66w2-5vf9
+Vite: `server.fs.deny` bypassed with queries - https://github.com/advisories/GHSA-v2wj-q39q-566r
+Vite Vulnerable to Arbitrary File Read via Vite Dev Server WebSocket - https://github.com/advisories/GHSA-p9ff-h696-f583
+fix available via `npm audit fix`
+node_modules/vite
+
+8 vulnerabilities (4 moderate, 4 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
